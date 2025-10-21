@@ -1,0 +1,6 @@
+openai
+assemblyai
+streamlit
+requests
+python-dotenv
+livekit
