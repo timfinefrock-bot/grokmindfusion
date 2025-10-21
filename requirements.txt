@@ -1,6 +1,6 @@
+streamlit
 openai
 assemblyai
-streamlit
 requests
 python-dotenv
-livekit
+PyJWT==2.9.0
