@@ -1,5 +1,4 @@
 # 1) tools.py (final base)
-cat > tools.py <<'PY'
 # tools.py — GrokMind Fusion helpers (final base)
 # xAI (Grok), n8n event post, LiveKit token signing (server-side safe), Builder helper
 
@@ -95,4 +94,3 @@ def livekit_token(room: str, identity: str, name: str | None = None, *, ttl_seco
     headers = {"kid": api_key}
     token = jwt.encode(claims, api_secret, algorithm="HS256", headers=headers)
     return {"url": lk_url, "token": token}
-PY

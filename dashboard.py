@@ -1,5 +1,4 @@
 # 2) dashboard.py (final base with Builder + LiveKit)
-cat > dashboard.py <<'PY'
 # dashboard.py — GrokMind Fusion Control Panel (final base)
 # Status + Chat + Transcribe + n8n + LiveKit Realtime + Builder panel
 
@@ -186,4 +185,3 @@ if st.button("Send Build Request", type="primary", use_container_width=True, dis
 
 st.divider()
 st.caption("GrokMind Fusion — cloud app. Secrets are stored in Streamlit Secrets.")
-PY
