@@ -1,6 +1,7 @@
-# tools.py — minimal GrokMind Fusion "brain" wrapper
-# Simple & Safe: loads keys from .env, talks to xAI (OpenAI-compatible)
-# Includes helper to send JSON events to n8n cloud/webhook.
+# 1) tools.py (final base)
+cat > tools.py <<'PY'
+# tools.py — GrokMind Fusion helpers (final base)
+# xAI (Grok), n8n event post, LiveKit token signing (server-side safe), Builder helper
 
 import os
 import time
@@ -8,54 +9,42 @@ import requests
 from typing import Optional
 from dotenv import load_dotenv
 from openai import OpenAI
+import jwt  # PyJWT
 
-# Load .env for local dev; in Docker you'll pass envs with --env-file
 load_dotenv()
 
-# Defaults (override via .env)
+# ---- xAI (Grok) ----
 XAI_BASE_URL = os.getenv("XAI_BASE_URL", "https://api.x.ai/v1")
 XAI_MODEL = os.getenv("XAI_MODEL", "grok-4")
 
 def _client() -> OpenAI:
-    """Return an authenticated OpenAI (xAI) client."""
     api_key = os.getenv("XAI_API_KEY")
     if not api_key:
-        raise RuntimeError("XAI_API_KEY is not set. Add it to your .env.")
+        raise RuntimeError("XAI_API_KEY is not set. Add it to your .env / secrets.")
     return OpenAI(api_key=api_key, base_url=XAI_BASE_URL)
 
 def grok_chat(prompt: str, *, model: Optional[str] = None,
               temperature: float = 0.2, system: Optional[str] = None) -> str:
-    """
-    Minimal chat completion call to xAI (Grok).
-    Returns text content, or raises RuntimeError with readable message.
-    """
     client = _client()
     msgs = []
     if system:
         msgs.append({"role": "system", "content": system})
     msgs.append({"role": "user", "content": prompt})
-
     try:
         resp = client.chat.completions.create(
-            model=model or XAI_MODEL,
-            messages=msgs,
-            temperature=temperature,
+            model=model or XAI_MODEL, messages=msgs, temperature=temperature,
         )
-        # defensive: handle empty responses
         if not resp.choices or not resp.choices[0].message or not resp.choices[0].message.content:
             raise RuntimeError("Empty response from Grok.")
         return resp.choices[0].message.content.strip()
     except Exception as e:
         raise RuntimeError(f"Grok chat failed: {e}")
 
+# ---- n8n event post ----
 def n8n_post(event: str, data: dict | None = None) -> dict:
-    """
-    Send a JSON event to your n8n Production Webhook from Mind Fusion.
-    """
     url = os.getenv("N8N_WORKSPACE_URL")
     if not url:
         raise RuntimeError("N8N_WORKSPACE_URL is not set in your environment.")
-
     payload = {
         "event": event,
         "from": "mind-fusion",
@@ -63,10 +52,47 @@ def n8n_post(event: str, data: dict | None = None) -> dict:
     }
     if data is not None:
         payload["data"] = data
-
     try:
-        resp = requests.post(url, json=payload, timeout=10)
+        resp = requests.post(url, json=payload, timeout=15)
         resp.raise_for_status()
         return resp.json()
     except Exception:
         return {"status": "ok", "raw": resp.text}
+
+# ---- Builder helper (sends structured build request to n8n) ----
+def builder_task(spec: str, *, priority: str = "normal", notes: str = "") -> dict:
+    if not spec.strip():
+        raise RuntimeError("Builder spec is empty.")
+    data = {"spec": spec.strip(), "priority": priority, "notes": notes}
+    return n8n_post("build_request", data)
+
+# ---- LiveKit token signing (server-side) ----
+def livekit_token(room: str, identity: str, name: str | None = None, *, ttl_seconds: int = 3600) -> dict:
+    """
+    Create a signed LiveKit access token (JWT) for joining a room.
+    Safe: uses LIVEKIT_API_SECRET on the server; never exposes it to the browser.
+    Returns dict: { 'url', 'token' }
+    """
+    api_key = os.getenv("LIVEKIT_API_KEY")
+    api_secret = os.getenv("LIVEKIT_API_SECRET")
+    lk_url = os.getenv("LIVEKIT_URL") or "wss://cloud.livekit.io"
+    if not api_key or not api_secret:
+        raise RuntimeError("LIVEKIT_API_KEY/LIVEKIT_API_SECRET not set.")
+    now = int(time.time())
+    exp = now + ttl_seconds
+    grants = {
+        "video": {
+            "room": room,
+            "roomJoin": True,
+            "canPublish": True,
+            "canSubscribe": True,
+            "roomCreate": True,
+        },
+        "identity": identity,
+        "name": name or identity,
+    }
+    claims = {"iss": "livekit", "sub": api_key, "nbf": now, "exp": exp, "grants": grants}
+    headers = {"kid": api_key}
+    token = jwt.encode(claims, api_secret, algorithm="HS256", headers=headers)
+    return {"url": lk_url, "token": token}
+PY
