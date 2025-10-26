@@ -240,3 +240,13 @@ elif just_text_btn:
     _send_to_grok_and_show(user_msg, speak=False)
 
 st.caption("Tip: keep this page open while talking. Mic is OFF until you click Toggle Mic.")
+
+# --- Temporary Grok reply stub (for demo) ---
+def _send_to_grok_and_show(msg: str, speak: bool = False):
+    """Simple placeholder so the demo buttons work without full pipeline."""
+    if not msg.strip():
+        st.warning("Nothing to send.")
+        return
+    st.info(f"Grok received: {msg}")
+    if speak:
+        st.success("🗣️ Simulated voice reply (placeholder)")
