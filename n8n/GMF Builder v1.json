@@ -1,0 +1,291 @@
+{
+  "name": "GMF Builder v1",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "gmf/build",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "5d262271-2087-4390-a02d-b257395fcd9a",
+      "name": "Webhook",
+      "webhookId": "36c7582d-a792-460c-af54-c18c2d9a427a"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "706a9753-f70d-4031-900d-01f1b18403cf",
+              "name": "repo_name",
+              "value": "== {{ ($json.repo_name || \"gmf-test-repo\") + \"-\" + $now.format(\"YYYYMMDD-HHmmss\") }}",
+              "type": "string"
+            },
+            {
+              "id": "7f7be447-03f9-426f-abfc-0d0bf43921df",
+              "name": "private",
+              "value": "={{$json.private === true}}",
+              "type": "boolean"
+            },
+            {
+              "id": "6baa8005-6212-43bf-b26a-09e7a98d2218",
+              "name": "description",
+              "value": "={{$json.description || \"Created by GMF Builder v1\"}}",
+              "type": "string"
+            },
+            {
+              "id": "b3509cbe-d4d9-448e-98d5-55a349169c21",
+              "name": "readme",
+              "value": "={{\"# \" + ($json.repo_name || $json.repo || \"gmf-test-repo\") + \"\\n\\nBootstrapped by GMF Builder v1.\"}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        208,
+        0
+      ],
+      "id": "212a3dd3-0ce1-459e-9b3d-40dd47354c0a",
+      "name": "Parse Spec (Set)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.github.com/user/repos",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubOAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2022-11-28"
+            },
+            {
+              "name": "User-Agent",
+              "value": "n8n"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "name",
+              "value": "={{$json.repo_name}}"
+            },
+            {
+              "name": "description",
+              "value": "={{$json.description}}"
+            },
+            {
+              "name": "private",
+              "value": "={{$json.private}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        416,
+        0
+      ],
+      "id": "fc560d74-1dad-4400-8336-14945c6c2b69",
+      "name": "Create Repo (API)",
+      "credentials": {
+        "githubOAuth2Api": {
+          "id": "VKFRi4HkcqLGPjBa",
+          "name": "GitHub account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b6eb4931-9ea6-4cf9-9ce3-f8f7b8723e28",
+              "name": "repo_url",
+              "value": "={{$json.html_url}}",
+              "type": "string"
+            },
+            {
+              "id": "dfaea8bf-228b-4109-a909-ad2a1cde352c",
+              "name": "owner",
+              "value": "={{$json.owner.login}}",
+              "type": "string"
+            },
+            {
+              "id": "4292d394-311a-4ea9-a41a-96b5b5e4d911",
+              "name": "name",
+              "value": "={{$json.name}}",
+              "type": "string"
+            },
+            {
+              "id": "f1184036-e6f8-4a4f-b39e-3d3b25f57f3a",
+              "name": "readme",
+              "value": "={{$node[\"Parse Spec (Set)\"].json.readme}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        624,
+        0
+      ],
+      "id": "0dfd191a-afb0-4de0-ad99-318216783690",
+      "name": "Grab Repo URL"
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "file",
+        "owner": {
+          "__rl": true,
+          "value": "={{$json.repo_url}}\n",
+          "mode": "url"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "=={{$json.repo_url}}",
+          "mode": "url"
+        },
+        "filePath": "README.md",
+        "fileContent": "={{$json.readme}}",
+        "commitMessage": "init: README via GMF Builder v1"
+      },
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1.1,
+      "position": [
+        832,
+        0
+      ],
+      "id": "419729a9-ff53-4561-b0bb-2f381b70bd7e",
+      "name": "Create a file",
+      "webhookId": "8ff16cf8-1922-4285-9186-f0d89515d031",
+      "credentials": {
+        "githubOAuth2Api": {
+          "id": "VKFRi4HkcqLGPjBa",
+          "name": "GitHub account"
+        }
+      }
+    }
+  ],
+  "pinData": {
+    "Webhook": [
+      {
+        "json": {
+          "headers": {
+            "host": "tfinefrock.app.n8n.cloud",
+            "user-agent": "curl/8.7.1",
+            "content-length": "154",
+            "accept": "*/*",
+            "accept-encoding": "gzip, br",
+            "cdn-loop": "cloudflare; loops=1; subreqs=1",
+            "cf-connecting-ip": "2600:4040:2b6e:e600:54be:4dfa:f389:1b40",
+            "cf-ew-via": "15",
+            "cf-ipcountry": "US",
+            "cf-ray": "9945ab73846b5973-IAD",
+            "cf-visitor": "{\"scheme\":\"https\"}",
+            "cf-worker": "n8n.cloud",
+            "content-type": "application/json",
+            "x-forwarded-for": "2600:4040:2b6e:e600:54be:4dfa:f389:1b40, 172.70.35.211",
+            "x-forwarded-host": "tfinefrock.app.n8n.cloud",
+            "x-forwarded-port": "443",
+            "x-forwarded-proto": "https",
+            "x-forwarded-server": "traefik-prod-users-gwc-47-58bbcd9445-gl5l4",
+            "x-is-trusted": "yes",
+            "x-real-ip": "2600:4040:2b6e:e600:54be:4dfa:f389:1b40"
+          },
+          "params": {},
+          "query": {},
+          "body": {
+            "repo_name": "gmf-builder-demo",
+            "private": true,
+            "description": "Created by GMF Builder v1",
+            "readme": "# gmf-builder-demo\n\nBootstrapped by GMF Builder v1."
+          },
+          "webhookUrl": "https://tfinefrock.app.n8n.cloud/webhook-test/gmf/build",
+          "executionMode": "test"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Parse Spec (Set)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Spec (Set)": {
+      "main": [
+        [
+          {
+            "node": "Create Repo (API)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Repo (API)": {
+      "main": [
+        [
+          {
+            "node": "Grab Repo URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Grab Repo URL": {
+      "main": [
+        [
+          {
+            "node": "Create a file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "732e4080-402f-4c6e-b41c-aefdb08c4ae6",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "9a5bbe8ab7def85e441c97bdc2235abd20d210c8160664478923e3dd37d2f2da"
+  },
+  "id": "nbHyplROCXbFNuDO",
+  "tags": []
+}
