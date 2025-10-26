@@ -193,98 +193,92 @@ if st.button("Join Live Voice (beta)", disabled=not enabled, use_container_width
 <head>
   <meta charset="utf-8" />
   <title>LiveKit Join</title>
-  <script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js"></script>
   <style>
     body {{ font-family: sans-serif; }}
     .btn {{ padding:8px 12px; margin:6px; }}
-    #status {{ margin:8px 8px 12px; }}
-    #log {{ white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; background:#111; color:#0f0; padding:10px; border-radius:8px; max-height:200px; overflow:auto; }}
+    #status {{ margin:8px 0; white-space:pre-wrap; }}
+    #log {{ background:#000; color:#0f0; padding:8px; font:12px/1.4 monospace; height:140px; overflow:auto; }}
   </style>
 </head>
 <body>
   <h3>LiveKit Room: {room}</h3>
-  <div id="status">Loading client…</div>
+  <div id="status">Loading LiveKit…</div>
   <button class="btn" id="muteBtn">Toggle Mute</button>
   <button class="btn" id="leaveBtn">Leave</button>
   <div id="log"></div>
 
   <script>
-  const log = (...a) => {{
-    const el = document.getElementById('log');
-    el.textContent += a.map(x => (typeof x === 'string' ? x : JSON.stringify(x))).join(' ') + "\\n";
-    el.scrollTop = el.scrollHeight;
-    console.log(...a);
-  }};
+  (function() {{
+    const logEl = document.getElementById('log');
+    const statusEl = document.getElementById('status');
+    const log = (...a) => {{ console.log(...a); logEl.textContent += a.join(' ') + "\\n"; }};
 
-  (async () => {{
-    // Pick whichever global exists
-    const LK = window.livekit || window.Livekit || window.LiveKit;
-    if (!LK) {{
-      document.getElementById('status').innerText = 'LiveKit client failed to load.';
-      log('ERROR: No LiveKit global found (livekit/Livekit/LiveKit)');
-      return;
+    // Load UMD with fallback (unpkg → jsDelivr)
+    function loadUMD(callback) {{
+      if (window.Livekit || window.LiveKit || window.livekit) return callback();
+      const s1 = document.createElement('script');
+      s1.src = "https://unpkg.com/@livekit/client@2/dist/livekit-client.umd.min.js";
+      s1.crossOrigin = "anonymous"; s1.defer = true;
+      s1.onload = callback;
+      s1.onerror = () => {{
+        const s2 = document.createElement('script');
+        s2.src = "https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js";
+        s2.crossOrigin = "anonymous"; s2.defer = true;
+        s2.onload = callback;
+        s2.onerror = () => {{
+          statusEl.textContent = "ERROR: LiveKit UMD failed to load (unpkg + jsDelivr).";
+        }};
+        document.head.appendChild(s2);
+      }};
+      document.head.appendChild(s1);
     }}
-    document.getElementById('status').innerText = 'Client loaded. Connecting…';
 
-    const url = "{info['url']}";
-    const token = "{info['token']}";
-    const room = new LK.Room({{
-      adaptiveStream: true,
-      dynacast: true,
-      publishDefaults: {{ dtx: true }},
-    }});
-    window.__lkRoom = room; // debug handle
-
-    // helpers
-    const setStatus = (t) => document.getElementById('status').innerText = t;
-
-    // events
-    room.on('connectionStateChanged', s => log('state:', s));
-    room.on('participantConnected', p => log('peer+', p.identity));
-    room.on('participantDisconnected', p => log('peer-', p.identity));
-    room.on('trackSubscribed', (track, pub, participant) => {{
-      if (track.kind === 'audio') {{
-        const el = track.attach();
-        el.autoplay = true; el.playsInline = true;
-        el.play().catch(()=>{{}});
-        document.body.appendChild(el);
-        log('audio subscribed from', participant.identity);
+    loadUMD(async () => {{
+      const LK = window.Livekit || window.LiveKit || window.livekit;
+      if (!LK) {{
+        statusEl.textContent = "ERROR: No LiveKit global found (livekit/Livekit/LiveKit)";
+        return;
       }}
-    }});
-    room.on('trackPublicationMuted', pub => log('pub muted:', pub.trackSid));
-    room.on('trackPublicationUnmuted', pub => log('pub unmuted:', pub.trackSid));
 
-    // buttons
-    document.getElementById('muteBtn').onclick = async () => {{
+      const url = "{info['url']}";
+      const token = "{info['token']}";
+      const room = new LK.Room({{ adaptiveStream: true, dynacast: true, publishDefaults: {{ dtx: true }} }});
+      window.__lkRoom = room; // for console debugging
+
+      room.on('participantConnected', p => log('participantConnected', p.identity));
+      room.on('participantDisconnected', p => log('participantDisconnected', p.identity));
+      room.on('trackSubscribed', (track) => {{
+        if (track.kind === 'audio') {{
+          const el = track.attach(); el.autoplay = true; el.playsInline = true;
+          el.play().catch(()=>{{}});
+          document.body.appendChild(el);
+        }}
+      }});
+
+      document.getElementById('muteBtn').onclick = async () => {{
+        try {{
+          const was = room.localParticipant.isMicrophoneEnabled();
+          const now = await room.localParticipant.setMicrophoneEnabled(!was);
+          statusEl.textContent = now ? "Mic ON" : "Mic OFF";
+        }} catch (e) {{
+          log("mute error", e);
+          statusEl.textContent = "Mic toggle failed: " + e;
+        }}
+      }};
+
+      document.getElementById('leaveBtn').onclick = () => {{
+        try {{ room.disconnect(); statusEl.textContent = "Disconnected"; }}
+        catch (e) {{ log("leave error", e); statusEl.textContent = "Leave failed: " + e; }}
+      }};
+
       try {{
-        const was = room.localParticipant.isMicrophoneEnabled();
-        const now = await room.localParticipant.setMicrophoneEnabled(!was);
-        setStatus(now ? 'Mic ON' : 'Mic OFF');
-        log('toggle mic ->', now);
+        await room.connect(url, token);
+        statusEl.textContent = "Connected. Mic OFF by default—click Toggle Mute to speak.";
       }} catch (e) {{
-        setStatus('Mic toggle failed'); log('ERR toggle', e);
+        log("connect error", e);
+        statusEl.textContent = "Connection failed: " + e;
       }}
-    }};
-    document.getElementById('leaveBtn').onclick = () => {{
-      try {{ room.disconnect(); setStatus('Disconnected'); log('left'); }}
-      catch(e) {{ setStatus('Leave failed'); log('ERR leave', e); }}
-    }};
-
-    // preflight mic permission (don’t publish; just warm the permission)
-    try {{
-      await navigator.mediaDevices.getUserMedia({{ audio: true }});
-      log('mic permission ok');
-    }} catch (e) {{
-      log('mic permission denied', e);
-    }}
-
-    try {{
-      await room.connect(url, token);
-      setStatus('Connected. Mic OFF by default—click Toggle Mute to speak.');
-      log('connected');
-    }} catch (e) {{
-      setStatus('Connection failed: ' + e); log('ERR connect', e);
-    }}
+    }});
   }})();
   </script>
 </body>
