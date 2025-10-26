@@ -215,26 +215,96 @@ def _speak_in_browser(text: str) -> None:
         height=0,
     )
 
-def _send_to_grok_and_show(msg: str, *, speak: bool = False) -> None:
-    msg = (msg or "").strip()
-    if not msg:
+def _send_to_grok_and_show(prompt: str, speak: bool) -> None:
+    if not prompt.strip():
         st.warning("Type something first.")
         return
+
     try:
-        reply = tools.grok_chat(msg)
+        # 1) Ask Grok
+        reply = tools.grok_chat(prompt.strip())
+
+        # 2) Show the text reply
+        st.success("Grok replied:")
+        st.write(reply)
+
+        # 3) Best-effort log to n8n (ignore errors)
+        try:
+            tools.n8n_post("voice_demo_grok", {"prompt": prompt.strip(), "reply": reply})
+        except Exception:
+            pass
+
+        # 4) Speak it (robust iOS/Safari path)
+        if speak:
+            st.components.v1.html(f"""
+<div id="gmf-tts" style="display:none"></div>
+<script>
+(function(){
+  const text = {json.dumps(reply)};
+  const box  = document.getElementById('gmf-tts');
+
+  // Small fallback button in case auto-speak is blocked by Safari
+  const btn = document.createElement('button');
+  btn.textContent = '▶️ Play reply';
+  btn.style.cssText = 'padding:10px 14px;border:0;border-radius:10px;background:#1f6feb;color:#fff;cursor:pointer;margin-top:6px;';
+  btn.onclick = () => speakNow(true);
+  btn.style.display = 'none';
+  box.parentElement.insertBefore(btn, box.nextSibling);
+
+  // iOS: resume TTS engine on first touch
+  document.addEventListener('touchend', () => {
+    try {{ window.speechSynthesis.resume(); }} catch(e) {{}}
+  }, {{once:true}});
+
+  function pickVoice() {{
+    const voices = window.speechSynthesis.getVoices() || [];
+    return voices.find(v => v.lang && v.lang.toLowerCase().startsWith('en-us')) || voices[0] || null;
+  }}
+
+  function speakNow(fromButton=false){
+    try {{
+      const u = new SpeechSynthesisUtterance(text);
+      const v = pickVoice();
+      if (v) u.voice = v;
+      u.rate = 1.03; u.pitch = 1.0; u.volume = 1.0; u.lang = (v && v.lang) ? v.lang : 'en-US';
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(u);
+      btn.style.display = 'none';
+    }} catch(e) {{
+      console.log('TTS error:', e);
+    }}
+  }}
+
+  function tryAutoSpeak(){
+    const ready = window.speechSynthesis.getVoices().length > 0;
+    if (ready) {{
+      speakNow(false);
+    }} else {{
+      window.speechSynthesis.onvoiceschanged = function() {{
+        window.speechSynthesis.onvoiceschanged = null;
+        speakNow(false);
+      }};
+      setTimeout(() => {{
+        if (window.speechSynthesis.getVoices().length > 0) {{
+          speakNow(false);
+        }} else {{
+          btn.style.display = 'inline-block';
+        }}
+      }}, 800);
+    }}
+  }
+
+  try {{ window.speechSynthesis.cancel(); window.speechSynthesis.resume(); }} catch(e) {{}}
+  tryAutoSpeak();
+})();
+</script>
+""", height=1)
+
     except Exception as e:
         st.error(f"Grok error: {e}")
-        return
-    st.success("Grok replied:")
-    st.write(reply)
-    # best-effort log to n8n (ignore failures)
-    try:
-        tools.n8n_post("voice_demo_grok", {"prompt": msg, "reply": reply})
-    except Exception:
-        pass
-    if speak:
-        _speak_in_browser(reply)
 
+
+# --- UI buttons that call it ---
 c1, c2 = st.columns(2)
 with c1:
     if st.button("Send to Grok ➜ Speak reply", use_container_width=True):
