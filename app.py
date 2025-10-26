@@ -185,49 +185,100 @@ enabled = bool(LIVEKIT_API_KEY and LIVEKIT_API_SECRET and room.strip() and ident
 if st.button("Join Live Voice (beta)", disabled=not enabled, use_container_width=True):
     try:
         info = tools.livekit_token(room.strip(), identity.strip(), name=identity.strip())
+
+        # IMPORTANT: use the UMD build so window.LiveKit exists, and wire the buttons.
         html = f"""
-<!DOCTYPE html>
+<!doctype html>
 <html>
 <head>
-<meta charset="utf-8" />
-<title>LiveKit Join</title>
-<script src="https://unpkg.com/@livekit/client@2"></script>
-<style>body {{ font-family: sans-serif; }} .btn {{ padding:8px 12px; margin:6px; }} #status {{ margin:8px 0; }}</style>
+  <meta charset="utf-8" />
+  <title>LiveKit Join</title>
+  <script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js"></script>
+  <style>
+    body {{ font-family: sans-serif; }}
+    .btn {{ padding:8px 12px; margin:6px; }}
+    #status {{ margin:8px 0; }}
+  </style>
 </head>
 <body>
-<h3>LiveKit Room: {room}</h3>
-<div id="status">Connecting…</div>
-<button class="btn" id="muteBtn">Toggle Mute</button>
-<button class="btn" id="leaveBtn">Leave</button>
-<script>
-(async () => {{
-  const url = "{info['url']}";
-  const token = "{info['token']}";
-  const room = new Livekit.Room();
-  const connectOpts = {{ autoSubscribe: true }};
-  room.on('participantConnected', p => console.log('participantConnected', p.identity));
-  room.on('trackSubscribed', (track, pub, participant) => {{
-    if (track.kind === 'audio') {{
-      const el = track.attach(); document.body.appendChild(el);
+  <h3>LiveKit Room: {room}</h3>
+  <div id="status">Connecting…</div>
+  <button class="btn" id="muteBtn">Toggle Mute</button>
+  <button class="btn" id="leaveBtn">Leave</button>
+
+  <script>
+  (async () => {{
+    // Make sure the UMD global is present
+    if (!window.LiveKit) {{
+      document.getElementById('status').innerText = 'LiveKit client failed to load.';
+      return;
     }}
-  }});
-  document.getElementById('muteBtn').onclick = async () => {{
-    const enabled = await room.localParticipant.setMicrophoneEnabled(!(room.localParticipant.isMicrophoneEnabled));
-    document.getElementById('status').innerText = enabled ? 'Mic ON' : 'Mic OFF';
-  }};
-  document.getElementById('leaveBtn').onclick = () => room.disconnect();
-  try {{
-    await room.connect(url, token, connectOpts);
-    document.getElementById('status').innerText = 'Connected. Mic OFF by default—click Toggle Mute to speak.';
-  }} catch (e) {{
-    document.getElementById('status').innerText = 'Connection failed: ' + e;
-  }}
-}})();
-</script>
+
+    const url = "{info['url']}";
+    const token = "{info['token']}";
+    const {{ Room }} = window.LiveKit;
+
+    const room = new Room({{
+      adaptiveStream: true,
+      dynacast: true,
+      publishDefaults: {{ dtx: true }},
+    }});
+
+    // Expose for console debugging
+    window.__lkRoom = room;
+
+    // Auto-play remote audio
+    room.on('trackSubscribed', (track, pub, participant) => {{
+      if (track.kind === 'audio') {{
+        const el = track.attach();
+        el.autoplay = true;
+        el.playsInline = true;
+        el.play().catch(() => {{}});
+        document.body.appendChild(el);
+      }}
+    }});
+
+    // Basic presence logging
+    room.on('participantConnected', (p) => console.log('participantConnected', p.identity));
+    room.on('participantDisconnected', (p) => console.log('participantDisconnected', p.identity));
+
+    // Button wiring
+    document.getElementById('muteBtn').onclick = async () => {{
+      try {{
+        const was = room.localParticipant.isMicrophoneEnabled();
+        const now = await room.localParticipant.setMicrophoneEnabled(!was);
+        document.getElementById('status').innerText = now ? 'Mic ON' : 'Mic OFF';
+      }} catch (e) {{
+        console.error(e);
+        document.getElementById('status').innerText = 'Mic toggle failed: ' + e;
+      }}
+    }};
+
+    document.getElementById('leaveBtn').onclick = () => {{
+      try {{
+        room.disconnect();
+        document.getElementById('status').innerText = 'Disconnected';
+      }} catch (e) {{
+        console.error(e);
+        document.getElementById('status').innerText = 'Leave failed: ' + e;
+      }}
+    }};
+
+    // Connect
+    try {{
+      await room.connect(url, token);
+      document.getElementById('status').innerText =
+        'Connected. Mic OFF by default—click Toggle Mute to speak.';
+    }} catch (e) {{
+      console.error(e);
+      document.getElementById('status').innerText = 'Connection failed: ' + e;
+    }}
+  }})();
+  </script>
 </body>
 </html>
 """
-        st.components.v1.html(html, height=420)
+        st.components.v1.html(html, height=440)
         st.success("LiveKit client loaded. Use the buttons to mute/unmute and leave.")
     except Exception as e:
         st.error(f"LiveKit token failed: {e}")
