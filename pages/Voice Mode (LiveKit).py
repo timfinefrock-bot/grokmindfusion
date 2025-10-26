@@ -1,22 +1,18 @@
 # pages/Voice Mode (LiveKit).py
 from __future__ import annotations
-
 import json
 import streamlit as st
+import tools
 
-import tools  # our helpers (grok_chat, n8n_post, livekit_token)
-
-# ----------------------------
-# Page chrome
-# ----------------------------
 st.set_page_config(page_title="Voice Mode (LiveKit)", layout="centered")
 st.title("🎙️ Voice Mode (LiveKit)")
 
-# ----------------------------
-# Inputs
-# ----------------------------
-room = st.text_input("Room name", value="mindfusion")
-identity = st.text_input("Your identity", value="user")
+# ---------- Inputs ----------
+colA, colB = st.columns(2)
+with colA:
+    room = st.text_input("Room name", value="mindfusion")
+with colB:
+    identity = st.text_input("Your identity", value="user")
 
 with st.expander("Environment (debug)"):
     LIVEKIT_URL = st.secrets.get("LIVEKIT_URL", "wss://cloud.livekit.io")
@@ -30,18 +26,10 @@ LIVEKIT_API_SECRET: {mask(LIVEKIT_API_SECRET)}""",
         language="bash",
     )
 
-# A small text box for “quick Grok” (with optional spoken reply)
-user_msg = st.text_area(
-    "Say (or paste) something for Grok",
-    height=80,
-    placeholder="e.g., Summarize what GMF Builder does in 3 bullets.",
-)
+st.markdown("---")
 
-st.divider()
-
-# ----------------------------
-# LiveKit inline launcher (works as a monitor; mic is toggled by button)
-# ----------------------------
+# ---------- LiveKit inline launcher ----------
+st.subheader("Join room")
 if st.button("🚀 Launch Voice (inline)", use_container_width=True):
     try:
         info = tools.livekit_token(
@@ -51,9 +39,8 @@ if st.button("🚀 Launch Voice (inline)", use_container_width=True):
         )
     except Exception as e:
         st.error(f"Token error: {e}")
-        st.stop()
-
-    html = f"""
+    else:
+        html = f"""
 <!doctype html>
 <html>
 <head>
@@ -69,28 +56,20 @@ if st.button("🚀 Launch Voice (inline)", use_container_width=True):
       --muted: #9db2d0;
       --brand: #1f6feb;
     }}
-    html, body {{
-      background: var(--bg); color: var(--text);
-      font-family: system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif;
-      margin:0;
-    }}
-    .wrap {{ max-width: 900px; margin: 18px auto; padding: 0 16px; }}
-    h2 {{ margin: 8px 0 12px; }}
-    .badges {{ display:flex; gap:8px; flex-wrap:wrap; margin: 8px 0 14px; }}
-    .badge {{
-      font-size: 12px; background:#0e1420; border:1px solid var(--panel-border);
-      color:var(--muted); padding:6px 10px; border-radius: 999px;
-    }}
+    html, body {{ background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif; margin:0; }}
+    .wrap {{ max-width: 900px; margin: 12px auto; padding: 0 16px; }}
+    .badges {{ display:flex; gap:8px; flex-wrap:wrap; margin: 8px 0 12px; }}
+    .badge {{ font-size: 12px; background:#0e1420; border:1px solid var(--panel-border); color:var(--muted); padding:6px 10px; border-radius: 999px; }}
     .card {{ background: var(--panel); border:1px solid var(--panel-border); border-radius: 12px; padding: 14px; }}
     .row {{ display:flex; gap:10px; flex-wrap:wrap; }}
-    button {{ padding:10px 14px; border:0; border-radius:10px; background:var(--brand); color:#fff; cursor:pointer; }}
+    button {{ padding:10px 14px; border:0; border-radius: 10px; background: var(--brand); color:#fff; cursor:pointer; }}
     button.secondary {{ background:#2a3550; }}
     #status {{ white-space: pre-wrap; line-height:1.35; font-size:14px; margin-top:8px; color: var(--muted); }}
   </style>
 </head>
 <body>
 <div class="wrap">
-  <h2>LiveKit Room: {room}</h2>
+  <h3>LiveKit Room: {room}</h3>
   <div class="badges">
     <div class="badge" id="conn">Waiting to connect…</div>
     <div class="badge" id="mic">Mic OFF</div>
@@ -99,7 +78,7 @@ if st.button("🚀 Launch Voice (inline)", use_container_width=True):
 
   <div class="card">
     <div class="row">
-      <button id="startAudioBtn" class="secondary">🔈 Start Audio (if muted by browser)</button>
+      <button id="startAudioBtn" class="secondary">🔈 Start Audio (unlock)</button>
       <button id="muteBtn">🎙️ Toggle Mic</button>
       <button id="leaveBtn" class="secondary">🚪 Leave</button>
     </div>
@@ -114,7 +93,6 @@ if st.button("🚀 Launch Voice (inline)", use_container_width=True):
   const badgeMic  = document.getElementById('mic');
   const log = (...a) => {{ console.log(...a); status.textContent += "\\n" + a.join(" "); }};
 
-  // Try UMD (window.LiveKit) first, then ESM dynamic import. Multiple CDNs.
   const UMD = [
     "https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js",
     "https://unpkg.com/livekit-client@2/dist/livekit-client.umd.min.js"
@@ -139,13 +117,8 @@ if st.button("🚀 Launch Voice (inline)", use_container_width=True):
     for (const url of UMD) {{
       try {{
         await loadScript(url);
-        if (window.LiveKit && window.LiveKit.Room) {{
-          log("UMD loaded:", url);
-          return window.LiveKit;
-        }}
-      }} catch (e) {{
-        log("UMD error:", String(e));
-      }}
+        if (window.LiveKit && window.LiveKit.Room) {{ log("UMD loaded:", url); return window.LiveKit; }}
+      }} catch (e) {{ log("UMD error:", String(e)); }}
     }}
     return null;
   }}
@@ -156,26 +129,17 @@ if st.button("🚀 Launch Voice (inline)", use_container_width=True):
         const mod = await import(/* @vite-ignore */ url);
         log("ESM loaded:", url);
         return mod;
-      }} catch (e) {{
-        log("ESM error:", String(e));
-      }}
+      }} catch (e) {{ log("ESM error:", String(e)); }}
     }}
     return null;
   }}
 
   let LK = await tryUMD();
   if (!LK) LK = await tryESM();
-  if (!LK) {{
-    status.textContent = "ERROR: LiveKit failed to load from jsDelivr and unpkg (UMD & ESM).";
-    return;
-  }}
+  if (!LK) {{ status.textContent = "ERROR: LiveKit failed to load."; return; }}
 
   const Room = LK.Room;
-  const room = new Room({{
-    adaptiveStream: true,
-    dynacast: true,
-    publishDefaults: {{ dtx: true }},
-  }});
+  const room = new Room({{ adaptiveStream: true, dynacast: true, publishDefaults: {{ dtx: true }} }});
   window.__lkRoom = room;
 
   room.on('participantConnected', p => log("participantConnected:", p.identity));
@@ -183,8 +147,7 @@ if st.button("🚀 Launch Voice (inline)", use_container_width=True):
   room.on('disconnected', () => log("Disconnected."));
   room.on('trackSubscribed', (track, pub, participant) => {{
     if (track.kind === 'audio') {{
-      const el = track.attach();
-      el.autoplay = true; el.playsInline = true; el.play().catch(()=>{{}});
+      const el = track.attach(); el.autoplay = true; el.playsInline = true; el.play().catch(()=>{{}});
       document.body.appendChild(el);
       log("Remote audio attached from", participant.identity || "peer");
     }}
@@ -192,16 +155,15 @@ if st.button("🚀 Launch Voice (inline)", use_container_width=True):
 
   document.getElementById('startAudioBtn').onclick = () => {{
     try {{
-      const A = new Audio();
-      A.src = "data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAA"; // tiny silent
+      const A = new Audio("data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAA");
       A.play().catch(()=>{{}});
-      log("StartAudio request sent (to satisfy browser gesture).");
+      log("StartAudio gesture sent.");
     }} catch (e) {{ log("StartAudio failed:", String(e)); }}
   }};
 
   document.getElementById('muteBtn').onclick = async () => {{
     try {{
-      const was = room.localParticipant.isMicrophoneEnabled; // property in v2
+      const was = room.localParticipant.isMicrophoneEnabled;  // property (no ())
       const now = await room.localParticipant.setMicrophoneEnabled(!was);
       badgeMic.textContent = now ? "Mic ON" : "Mic OFF";
       log(now ? "Mic ON" : "Mic OFF");
@@ -214,7 +176,6 @@ if st.button("🚀 Launch Voice (inline)", use_container_width=True):
 
   const url = {json.dumps(info["url"])};
   const token = {json.dumps(info["token"])};
-
   try {{
     await room.connect(url, token);
     badgeConn.textContent = "Connected";
@@ -228,108 +189,77 @@ if st.button("🚀 Launch Voice (inline)", use_container_width=True):
 </body>
 </html>
 """
-    st.components.v1.html(html, height=640, scrolling=True)
+        st.components.v1.html(html, height=640, scrolling=True)
 
-st.divider()
+st.markdown("---")
 
-# ----------------------------
-# Quick Grok (text) with optional spoken reply (iOS/Safari safe)
-# ----------------------------
+# ---------- Talk to Grok (text -> spoken reply) ----------
+st.subheader("🧠 Talk to Grok (quick demo)")
+user_msg = st.text_area(
+    "Say (or paste) something for Grok",
+    height=80,
+    placeholder="e.g., Summarize what GMF Builder does in 3 bullets."
+)
+
+col1, col2 = st.columns(2)
+with col1:
+    speak_btn = st.button("Send to Grok → Speak reply", type="primary", use_container_width=True)
+with col2:
+    just_text_btn = st.button("Send to Grok (text only)", use_container_width=True)
+
 def _send_to_grok_and_show(prompt: str, speak: bool) -> None:
     if not prompt.strip():
         st.warning("Type something first.")
         return
-
     try:
-        # 1) Ask Grok
         reply = tools.grok_chat(prompt.strip())
-
-        # 2) Show the text reply
-        st.success("Grok replied:")
+        st.success("Grok reply")
         st.write(reply)
 
-        # 3) Log to n8n (best-effort)
+        # best-effort log to n8n (ignore failures)
         try:
             tools.n8n_post("voice_demo_grok", {"prompt": prompt.strip(), "reply": reply})
         except Exception:
             pass
 
-        # 4) Speak it (robust iOS/Safari path)
         if speak:
+            # iOS/Safari-friendly: require a tap to unlock audio in Streamlit iframe
             st.components.v1.html(f"""
 <div id="gmf-tts" style="display:none"></div>
 <script>
 (function(){{
   const text = {json.dumps(reply)};
-  const box  = document.getElementById('gmf-tts');
-
-  // Small fallback button if auto-speak is blocked
-  const btn = document.createElement('button');
-  btn.textContent = '▶️ Play reply';
-  btn.style.cssText = 'padding:10px 14px;border:0;border-radius:10px;background:#1f6feb;color:#fff;cursor:pointer;margin-top:6px;';
-  btn.onclick = () => speakNow(true);
-  btn.style.display = 'none';
-  box.parentElement.insertBefore(btn, box.nextSibling);
-
-  // iOS: resume TTS engine on first touch
-  document.addEventListener('touchend', () => {{
-    try {{ window.speechSynthesis.resume(); }} catch(e) {{}}
-  }}, {{once:true}});
-
-  function pickVoice() {{
-    const voices = window.speechSynthesis.getVoices() || [];
-    return voices.find(v => v.lang && v.lang.toLowerCase().startsWith('en-us')) || voices[0] || null;
+  function speakNow(){{
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'en-US'; u.rate = 1.0; u.pitch = 1.0;
+    speechSynthesis.cancel(); speechSynthesis.speak(u);
   }}
-
-  function speakNow(fromButton=false){{
+  const btn = document.createElement('button');
+  btn.textContent = '🔊 Tap to play Grok’s reply';
+  btn.style.cssText = 'padding:12px 18px;border:0;border-radius:10px;background:#1f6feb;color:#fff;font-size:16px;cursor:pointer;margin-top:10px;';
+  btn.onclick = () => {{
     try {{
-      const u = new SpeechSynthesisUtterance(text);
-      const v = pickVoice();
-      if (v) u.voice = v;
-      u.rate = 1.03; u.pitch = 1.0; u.volume = 1.0; u.lang = (v && v.lang) ? v.lang : 'en-US';
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.speak(u);
-      btn.style.display = 'none';
+      const a = new Audio("data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAA");
+      a.play().catch(()=>{{}});
+      speechSynthesis.resume();
+      speakNow();
+      btn.textContent = "✅ Speaking…";
+      btn.disabled = true;
     }} catch(e) {{
       console.log('TTS error:', e);
+      btn.textContent = "⚠️ Could not play";
     }}
-  }}
-
-  function tryAutoSpeak(){{
-    const ready = window.speechSynthesis.getVoices().length > 0;
-    if (ready) {{
-      speakNow(false);
-    }} else {{
-      window.speechSynthesis.onvoiceschanged = function() {{
-        window.speechSynthesis.onvoiceschanged = null;
-        speakNow(false);
-      }};
-      setTimeout(() => {{
-        if (window.speechSynthesis.getVoices().length > 0) {{
-          speakNow(false);
-        }} else {{
-          btn.style.display = 'inline-block';
-        }}
-      }}, 800);
-    }}
-  }}
-
-  try {{ window.speechSynthesis.cancel(); window.speechSynthesis.resume(); }} catch(e) {{}}
-  tryAutoSpeak();
+  }};
+  document.body.appendChild(btn);
 }})();
 </script>
-""", height=1)
-
+""", height=60)
     except Exception as e:
         st.error(f"Grok error: {e}")
 
-# Buttons that call it
-c1, c2 = st.columns(2)
-with c1:
-    if st.button("Send to Grok ➜ Speak reply", use_container_width=True):
-        _send_to_grok_and_show(user_msg, speak=True)
-with c2:
-    if st.button("Send to Grok (text only)", use_container_width=True):
-        _send_to_grok_and_show(user_msg, speak=False)
+if speak_btn:
+    _send_to_grok_and_show(user_msg, speak=True)
+elif just_text_btn:
+    _send_to_grok_and_show(user_msg, speak=False)
 
-st.caption("Tip: keep this page open while talking. Mic is OFF until you click Toggle Mic.")
+st.caption("Tip: On iPhone, tap the blue button to play Grok’s reply (browser audio unlock).")
