@@ -68,13 +68,15 @@ if st.button("🚀 Launch Voice (inline)"):
   }};
   status.textContent = "Loading LiveKit client…";
 
-  const UMD = [
+    const UMD = [
     "https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js",
     "https://unpkg.com/livekit-client@2/dist/livekit-client.umd.min.js"
   ];
+
   const ESM = [
     "https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.esm.js",
-    "https://unpkg.com/livekit-client@2/dist/livekit-client.esm.js"
+    "https://unpkg.com/livekit-client@2/dist/livekit-client.esm.js",
+    "https://esm.sh/livekit-client@2"
   ];
 
   async function loadScript(src) {{
