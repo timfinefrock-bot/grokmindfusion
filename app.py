@@ -1,46 +1,106 @@
-# 2) dashboard.py (final base with Builder + LiveKit)
-# dashboard.py — GrokMind Fusion Control Panel (final base)
-# Status + Chat + Transcribe + n8n + LiveKit Realtime + Builder panel
+# app.py — GrokMind Fusion (stable)
+# Status + Chat + Transcribe + LiveKit + Builder (n8n)
+
+from __future__ import annotations
 
 import os
 import uuid
+import json
 import tempfile
-from dotenv import load_dotenv
+import requests
 import streamlit as st
+
+# Local modules
 import tools
 import voice
 
-load_dotenv()
+# ---------------------------
+# Helpers
+# ---------------------------
+def _secret(key: str, default: str | None = None) -> str | None:
+    """Safe secrets getter: prefers Streamlit secrets; falls back to env."""
+    try:
+        _ = st.secrets  # parse once
+        return st.secrets.get(key, default)  # type: ignore[attr-defined]
+    except Exception:
+        return os.getenv(key, default)
+
+def masked(val: str | None, keep: int = 4) -> str:
+    if not val:
+        return "—"
+    return (val[:keep] + "…" + val[-keep:]) if len(val) > keep * 2 else "•••"
+
+# ---------------------------
+# Config / Secrets
+# ---------------------------
+N8N_BUILDER_URL = _secret("N8N_BUILDER_URL")
+XAI_API_KEY = _secret("XAI_API_KEY")
+ASSEMBLYAI_API_KEY = _secret("ASSEMBLYAI_API_KEY")
+LIVEKIT_API_KEY = _secret("LIVEKIT_API_KEY")
+LIVEKIT_API_SECRET = _secret("LIVEKIT_API_SECRET")
+LIVEKIT_URL = _secret("LIVEKIT_URL") or "wss://cloud.livekit.io"
+N8N_WORKSPACE_URL = _secret("N8N_WORKSPACE_URL")
+STREAMLIT_ACCOUNT = _secret("STREAMLIT_ACCOUNT")
+
+# ---------------------------
+# n8n Builder client
+# ---------------------------
+def send_to_builder(repo_name: str, notes: str, priority: str, readme: str):
+    """Send structured build request to n8n Builder webhook."""
+    if not N8N_BUILDER_URL:
+        return False, "Missing N8N_BUILDER_URL in Streamlit Cloud Secrets."
+
+    payload = {
+        "repo_name": repo_name.strip(),
+        "private": True,
+        "description": f"Created by GMF Builder v1 — priority={priority}" + (f" | {notes}" if notes else ""),
+        "readme": readme or f"# {repo_name}\n\nBootstrapped by GMF Builder v1."
+    }
+
+    try:
+        resp = requests.post(
+            N8N_BUILDER_URL,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=20,
+        )
+        status = resp.status_code
+        text = resp.text
+    except requests.RequestException as e:
+        return False, f"Request error: {e}"
+
+    try:
+        data = resp.json()
+    except Exception:
+        data = {"raw": text, "status": status}
+
+    if 200 <= status < 300:
+        return True, data
+    else:
+        return False, data
+
+# ---------------------------
+# UI setup
+# ---------------------------
 st.set_page_config(page_title="GrokMind Fusion", layout="centered")
 st.title("🧠 GrokMind Fusion")
 
-def masked(val: str, keep: int = 4) -> str:
-    if not val: return "—"
-    return (val[:keep] + "…" + val[-keep:]) if len(val) > keep*2 else "•••"
-
 # ---- Environment ----
 st.subheader("Environment")
-xai = os.getenv("XAI_API_KEY")
-aai = os.getenv("ASSEMBLYAI_API_KEY")
-lk_key = os.getenv("LIVEKIT_API_KEY")
-lk_sec = os.getenv("LIVEKIT_API_SECRET")
-lk_url = os.getenv("LIVEKIT_URL") or "wss://cloud.livekit.io"
-n8n = os.getenv("N8N_WORKSPACE_URL")
-sl = os.getenv("STREAMLIT_ACCOUNT")
-
 def check_row(label, value):
     ok = bool(value)
     st.write(("✅" if ok else "🟡"), f"**{label}**", f"`{masked(value)}`" if value else " (not set)")
     return ok
 
 _ = [
-    check_row("XAI_API_KEY", xai),
-    check_row("ASSEMBLYAI_API_KEY", aai),
-    check_row("LIVEKIT_API_KEY", lk_key),
-    check_row("LIVEKIT_API_SECRET", lk_sec),
-    check_row("LIVEKIT_URL", lk_url),
-    check_row("N8N_WORKSPACE_URL", n8n),
-    check_row("STREAMLIT_ACCOUNT", sl),
+    check_row("XAI_API_KEY", XAI_API_KEY),
+    check_row("ASSEMBLYAI_API_KEY", ASSEMBLYAI_API_KEY),
+    check_row("LIVEKIT_API_KEY", LIVEKIT_API_KEY),
+    check_row("LIVEKIT_API_SECRET", LIVEKIT_API_SECRET),
+    check_row("LIVEKIT_URL", LIVEKIT_URL),
+    check_row("N8N_WORKSPACE_URL", N8N_WORKSPACE_URL),
+    check_row("STREAMLIT_ACCOUNT", STREAMLIT_ACCOUNT),
+    check_row("N8N_BUILDER_URL", N8N_BUILDER_URL),
 ]
 st.divider()
 
@@ -48,6 +108,7 @@ st.divider()
 st.header("Chat with Grok")
 user_text = st.text_area("Your message", placeholder="Type a question or instruction…", height=120)
 log_n8n = st.checkbox("Post to n8n", value=True)
+
 if st.button("Ask Grok", type="primary", use_container_width=True, disabled=not bool(user_text.strip())):
     try:
         reply = tools.grok_chat(user_text.strip())
@@ -65,19 +126,22 @@ st.divider()
 
 # ---- Transcribe Audio ----
 st.header("Transcribe Audio")
-audio = st.file_uploader("Upload audio (aiff/wav/mp3/m4a)", type=["aiff","wav","mp3","m4a"])
+audio = st.file_uploader("Upload audio (aiff/wav/mp3/m4a)", type=["aiff", "wav", "mp3", "m4a"])
 auto_ask = st.checkbox("Ask Grok about the transcript", value=True)
 log_n8n2 = st.checkbox("Post to n8n", value=True, key="log2")
+
 if st.button("Transcribe", use_container_width=True, disabled=audio is None):
+    tmp_path = None
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{audio.name}") as tmp:
             tmp.write(audio.getbuffer())
             tmp_path = tmp.name
+
         res = voice.transcribe_file(tmp_path)
         if "error" in res:
             st.error(f"AssemblyAI error: {res['error']}")
         else:
-            txt = res.get("text","").strip()
+            txt = res.get("text", "").strip()
             st.success("Transcript:")
             st.write(txt)
             if log_n8n2:
@@ -92,29 +156,32 @@ if st.button("Transcribe", use_container_width=True, disabled=audio is None):
                     st.write(reply)
                     if log_n8n2:
                         try:
-                            tools.n8n_post("grok_reply_from_transcript",
-                                           {"input_text": txt, "reply": reply, "stt_conf": res.get("confidence")})
+                            tools.n8n_post(
+                                "grok_reply_from_transcript",
+                                {"input_text": txt, "reply": reply, "stt_conf": res.get("confidence")},
+                            )
                         except Exception as e:
                             st.warning(f"n8n post failed: {e}")
                 except Exception as e:
                     st.error(f"Grok error: {e}")
     finally:
-        try:
-            if "tmp_path" in locals():
+        if tmp_path:
+            try:
                 os.remove(tmp_path)
-        except Exception:
-            pass
+            except Exception:
+                pass
 
 st.divider()
 
-# ---- LiveKit Realtime (Join Room) ----
+# ---- LiveKit Realtime ----
 st.header("Realtime Voice (LiveKit)")
 colA, colB = st.columns(2)
 with colA:
     room = st.text_input("Room name", value="mindfusion")
 with colB:
     identity = st.text_input("Your identity", value=f"user-{uuid.uuid4().hex[:6]}")
-enabled = bool(lk_key and lk_sec and room.strip() and identity.strip())
+enabled = bool(LIVEKIT_API_KEY and LIVEKIT_API_SECRET and room.strip() and identity.strip())
+
 if st.button("Join Live Voice (beta)", disabled=not enabled, use_container_width=True):
     try:
         info = tools.livekit_token(room.strip(), identity.strip(), name=identity.strip())
@@ -167,21 +234,27 @@ if st.button("Join Live Voice (beta)", disabled=not enabled, use_container_width
 
 st.divider()
 
-# ---- Builder panel (sends structured spec to n8n) ----
+# ---- Builder (send spec to n8n) ----
 st.header("Builder (send spec to n8n)")
-spec = st.text_area("Describe what to build", placeholder="e.g., Online directory for dog grooming on Cape Cod with search by town, rating, and mobile-friendly UI.", height=140)
 col1, col2 = st.columns(2)
 with col1:
-    priority = st.selectbox("Priority", ["low","normal","high"], index=1)
+    repo_name = st.text_input("Repository name", value="gmf-builder-demo").strip()
 with col2:
-    notes = st.text_input("Notes (optional)", placeholder="Design preferences, tech stack, etc.")
-if st.button("Send Build Request", type="primary", use_container_width=True, disabled=not bool(spec.strip())):
-    try:
-        res = tools.builder_task(spec, priority=priority, notes=notes)
-        st.success("Build request sent to n8n.")
-        st.json(res)
-    except Exception as e:
-        st.error(f"Builder request failed: {e}")
+    priority = st.selectbox("Priority", ["low", "normal", "high"], index=1)
 
-st.divider()
-st.caption("GrokMind Fusion — cloud app. Secrets are stored in Streamlit Secrets.")
+notes = st.text_input("Notes (optional)", placeholder="Design preferences, tech stack, etc.")
+readme = st.text_area("README content (optional)", height=120, placeholder="# Title\n\nShort description…")
+
+if st.button("Send Build Request", use_container_width=True, disabled=not bool(repo_name)):
+    ok, result = send_to_builder(repo_name, notes, priority, readme)
+    if ok:
+        repo_url = (result or {}).get("repo_url") or "(pending)"
+        st.success(f"Builder started successfully. Repo: {repo_url}")
+        with st.expander("Response (debug)"):
+            st.code(json.dumps(result, indent=2))
+    else:
+        st.error("Builder request failed.")
+        with st.expander("Error details"):
+            st.code(json.dumps(result, indent=2) if isinstance(result, dict) else str(result))
+
+st.caption("GrokMind Fusion — cloud app. Secrets are stored in Streamlit Cloud Secrets.")
