@@ -195,14 +195,6 @@ if st.button("🚀 Launch Voice (inline)", use_container_width=True):
 
 st.divider()
 
-# ---------- Talk to Grok (text -> spoken reply) ----------
-st.subheader("🧠 Talk to Grok (quick demo)")
-user_msg = st.text_area(
-    "Say (or paste) something for Grok",
-    height=80,
-    placeholder="e.g., Summarize what GMF Builder does in 3 bullets."
-)
-
 col_a, col_b = st.columns([1, 1])
 with col_a:
     speak_btn = st.button("Send to Grok → Speak reply", type="primary", use_container_width=True)
