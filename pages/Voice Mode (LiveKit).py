@@ -1,15 +1,18 @@
 # pages/Voice Mode (LiveKit).py
 from __future__ import annotations
-import streamlit as st
+
 import json
+import streamlit as st
 import tools
 
 st.set_page_config(page_title="Voice Mode (LiveKit)", layout="centered")
 st.title("🎙️ Voice Mode (LiveKit)")
 
+# Inputs
 room = st.text_input("Room name", value="mindfusion")
 identity = st.text_input("Your identity", value="user")
 
+# Debug env (masked)
 with st.expander("Environment (debug)"):
     LIVEKIT_URL = st.secrets.get("LIVEKIT_URL", "wss://cloud.livekit.io")
     LIVEKIT_API_KEY = st.secrets.get("LIVEKIT_API_KEY")
@@ -23,14 +26,18 @@ LIVEKIT_API_SECRET: {mask(LIVEKIT_API_SECRET)}""",
     )
 
 if st.button("🚀 Launch Voice (inline)"):
+    # Get a server-signed token (never expose API secret to browser)
     try:
-        info = tools.livekit_token(room.strip() or "mindfusion",
-                                   identity.strip() or "user",
-                                   name=identity.strip() or "user")
+        info = tools.livekit_token(
+            room.strip() or "mindfusion",
+            identity.strip() or "user",
+            name=identity.strip() or "user",
+        )
     except Exception as e:
         st.error(f"Token error: {e}")
         st.stop()
 
+    # Inline LiveKit client (UMD -> ESM fallback). Mic OFF by default.
     html = f"""
 <!doctype html>
 <html>
@@ -39,12 +46,12 @@ if st.button("🚀 Launch Voice (inline)"):
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Voice Mode</title>
   <style>
-    body{{margin:0;padding:20px;background:#0b0e12;color:#e8f0fe;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif}}
-    .wrap{{max-width:860px;margin:0 auto}}
-    .row{{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}}
-    button{{padding:10px 14px;border:0;border-radius:10px;background:#1f6feb;color:#fff;cursor:pointer}}
-    .card{{background:#10151c;border:1px solid #1f2630;border-radius:12px;padding:16px;margin-top:16px}}
-    #status{{white-space:pre-wrap;line-height:1.35;font-size:14px}}
+    body{{{{margin:0;padding:20px;background:#0b0e12;color:#e8f0fe;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif}}}}
+    .wrap{{{{max-width:860px;margin:0 auto}}}}
+    .row{{{{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}}}}
+    button{{{{padding:10px 14px;border:0;border-radius:10px;background:#1f6feb;color:#fff;cursor:pointer}}}}
+    .card{{{{background:#10151c;border:1px solid #1f2630;border-radius:12px;padding:16px;margin-top:16px}}}}
+    #status{{{{white-space:pre-wrap;line-height:1.35;font-size:14px}}}}
   </style>
 </head>
 <body>
@@ -55,7 +62,7 @@ if st.button("🚀 Launch Voice (inline)"):
       <button id="muteBtn">🎙️ Toggle Mic</button>
       <button id="leaveBtn">🚪 Leave</button>
     </div>
-    <div id="status">Starting loader…</div>
+    <div id="status">Loading LiveKit client…</div>
   </div>
 </div>
 
@@ -66,25 +73,25 @@ if st.button("🚀 Launch Voice (inline)"):
     console.log(...a);
     status.textContent += "\\n" + a.join(" ");
   }};
-  status.textContent = "Loading LiveKit client…";
 
-    const UMD = [
+  // Prefer UMD (window.LiveKit). If CDNs fail, try ESM dynamic import.
+  const UMD = [
     "https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js",
     "https://unpkg.com/livekit-client@2/dist/livekit-client.umd.min.js"
   ];
-
   const ESM = [
     "https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.esm.js",
     "https://unpkg.com/livekit-client@2/dist/livekit-client.esm.js",
     "https://esm.sh/livekit-client@2"
   ];
 
-  async function loadScript(src) {{
+  function loadScript(src) {{
     return new Promise((resolve, reject) => {{
       const s = document.createElement('script');
       s.src = src;
+      s.async = true;
       s.onload = () => resolve(src);
-      s.onerror = () => reject(new Error('script failed: ' + src));
+      s.onerror = () => reject(new Error("script failed: " + src));
       document.head.appendChild(s);
     }});
   }}
@@ -97,9 +104,7 @@ if st.button("🚀 Launch Voice (inline)"):
           log("UMD loaded:", url);
           return window.LiveKit;
         }}
-      }} catch (e) {{
-        log("UMD error:", String(e));
-      }}
+      }} catch (e) {{ log("UMD error:", String(e)); }}
     }}
     return null;
   }}
@@ -110,9 +115,7 @@ if st.button("🚀 Launch Voice (inline)"):
         const mod = await import(/* @vite-ignore */ url);
         log("ESM loaded:", url);
         return mod;
-      }} catch (e) {{
-        log("ESM error:", String(e));
-      }}
+      }} catch (e) {{ log("ESM error:", String(e)); }}
     }}
     return null;
   }}
@@ -133,6 +136,7 @@ if st.button("🚀 Launch Voice (inline)"):
   }});
   window.__lkRoom = room;
 
+  // Logs & media
   room.on('participantConnected', p => log("participantConnected:", p.identity));
   room.on('participantDisconnected', p => log("participantDisconnected:", p.identity));
   room.on('disconnected', () => log("Disconnected."));
@@ -146,15 +150,24 @@ if st.button("🚀 Launch Voice (inline)"):
     }}
   }});
 
+  // Buttons
   document.getElementById('muteBtn').onclick = async () => {{
     try {{
-      const was = room.localParticipant.isMicrophoneEnabled();
+      const was = room.localParticipant.isMicrophoneEnabled;  // property in v2
       const now = await room.localParticipant.setMicrophoneEnabled(!was);
       log(now ? "Mic ON" : "Mic OFF");
-    }} catch (e) {{ log("Mic toggle failed:", String(e)); }}
+    }} catch (e) {{
+      log("Mic toggle failed: " + String(e));
+    }}
   }};
+
   document.getElementById('leaveBtn').onclick = () => {{
-    try {{ room.disconnect(); }} catch (e) {{ log("Leave failed:", String(e)); }}
+    try {{
+      room.disconnect();
+      log("Disconnected");
+    }} catch (e) {{
+      log("Leave failed: " + String(e));
+    }}
   }};
 
   const url = {json.dumps(info["url"])};
@@ -164,7 +177,7 @@ if st.button("🚀 Launch Voice (inline)"):
     await room.connect(url, token);
     log("Connected. Mic is OFF by default — click Toggle Mic to speak.");
   }} catch (e) {{
-    log("Connection failed:", String(e));
+    log("Connection failed: " + String(e));
   }}
 }})();
 </script>
