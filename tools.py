@@ -65,32 +65,39 @@ def builder_task(spec: str, *, priority: str = "normal", notes: str = "") -> dic
     data = {"spec": spec.strip(), "priority": priority, "notes": notes}
     return n8n_post("build_request", data)
 
-# ---- LiveKit token signing (server-side) ----
+# -# ---- LiveKit token signing (server-side) ----
 def livekit_token(room: str, identity: str, name: str | None = None, *, ttl_seconds: int = 3600) -> dict:
     """
-    Create a signed LiveKit access token (JWT) for joining a room.
-    Safe: uses LIVEKIT_API_SECRET on the server; never exposes it to the browser.
-    Returns dict: { 'url', 'token' }
+    Create a LiveKit access token (JWT) for joining a room (LiveKit v2 format).
+    - iss: LIVEKIT_API_KEY
+    - sub: participant identity
+    - signed HS256 with LIVEKIT_API_SECRET
+    - top-level `video` grant (no "grants" wrapper)
     """
     api_key = os.getenv("LIVEKIT_API_KEY")
     api_secret = os.getenv("LIVEKIT_API_SECRET")
     lk_url = os.getenv("LIVEKIT_URL") or "wss://cloud.livekit.io"
     if not api_key or not api_secret:
         raise RuntimeError("LIVEKIT_API_KEY/LIVEKIT_API_SECRET not set.")
+
     now = int(time.time())
     exp = now + ttl_seconds
-    grants = {
-        "video": {
-            "room": room,
+
+    payload = {
+        "iss": api_key,                 # MUST be your API key
+        "sub": identity,                # participant identity
+        "nbf": now - 10,                # small skew allowance
+        "iat": now,
+        "exp": exp,
+        "name": (name or identity),
+        "video": {                      # v2-style grant at top level
             "roomJoin": True,
+            "room": room,
             "canPublish": True,
             "canSubscribe": True,
-            "roomCreate": True,
         },
-        "identity": identity,
-        "name": name or identity,
     }
-    claims = {"iss": "livekit", "sub": api_key, "nbf": now, "exp": exp, "grants": grants}
-    headers = {"kid": api_key}
-    token = jwt.encode(claims, api_secret, algorithm="HS256", headers=headers)
+
+    # HS256 with your API SECRET. (No kid header required for v2)
+    token = jwt.encode(payload, api_secret, algorithm="HS256")
     return {"url": lk_url, "token": token}
