@@ -39,47 +39,40 @@ def grok_chat(prompt: str, *, model: Optional[str] = None,
     except Exception as e:
         raise RuntimeError(f"Grok chat failed: {e}")
 
-# ---- n8n event post ----
+# ---- n8n event post (robust; prefers N8N_LOG_URL) ----
 def n8n_post(event: str, data: dict | None = None) -> dict:
     """
-    Post a log/event to n8n. Uses N8N_LOG_URL (preferred) or falls back to N8N_WORKSPACE_URL.
-    Returns a small dict; never throws on HTTP errors.
+    Post a JSON event to n8n. Preference order:
+      1) N8N_LOG_URL (logging/sessions)
+      2) N8N_WORKSPACE_URL (legacy/general)
+    Returns parsed JSON on success, else a structured error dict.
     """
     url = os.getenv("N8N_LOG_URL") or os.getenv("N8N_WORKSPACE_URL")
     if not url:
-        return {"status": "error", "error": "Missing N8N_LOG_URL/N8N_WORKSPACE_URL"}
+        return {"ok": False, "error": "No n8n URL configured (set N8N_LOG_URL or N8N_WORKSPACE_URL)"}
 
     payload = {
         "event": event,
-        "session": os.getenv("GMF_SESSION_ID", ""),
-        "from": "gmf",
+        "from": "mind-fusion",
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     if data is not None:
         payload["data"] = data
 
-    resp = None  # ensure defined for error handling
+    resp = None
     try:
-        resp = requests.post(url, json=payload, timeout=12)
-        # If not 2xx, try to surface text but still return a dict
-        if not (200 <= resp.status_code < 300):
-            return {
-                "status": "http_error",
-                "code": resp.status_code,
-                "text": resp.text[:1000],
-            }
-        # Try JSON first; fall back to raw text
+        resp = requests.post(url, json=payload, timeout=20)
+        resp.raise_for_status()
         try:
-            return resp.json()
-        except Exception:
-            return {"status": "ok", "text": resp.text[:1000]}
-    except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e),
-            "code": getattr(resp, "status_code", None),
-            "text": getattr(resp, "text", None)[:1000] if getattr(resp, "text", None) else None,
-        }
+            return {"ok": True, "json": resp.json()}
+        except ValueError:
+            return {"ok": True, "text": resp.text}
+    except requests.RequestException as e:
+        err = {"ok": False, "error": f"Request error: {e}"}
+        if resp is not None:
+            err["status"] = resp.status_code
+            err["body"] = resp.text[:500]
+        return err
     
 # ---- Builder helper (sends structured build request to n8n) ----
 def builder_task(spec: str, *, priority: str = "normal", notes: str = "") -> dict:
