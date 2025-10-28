@@ -4,3 +4,8 @@ __pycache__/
 *.tar
 *.tar.gz
 .DS_Store
+
+# editor/OS junk
+#*
+*~
+.DS_Store
