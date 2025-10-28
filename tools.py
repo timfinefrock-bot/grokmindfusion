@@ -41,23 +41,46 @@ def grok_chat(prompt: str, *, model: Optional[str] = None,
 
 # ---- n8n event post ----
 def n8n_post(event: str, data: dict | None = None) -> dict:
-    url = os.getenv("N8N_WORKSPACE_URL")
+    """
+    Post a log/event to n8n. Uses N8N_LOG_URL (preferred) or falls back to N8N_WORKSPACE_URL.
+    Returns a small dict; never throws on HTTP errors.
+    """
+    url = os.getenv("N8N_LOG_URL") or os.getenv("N8N_WORKSPACE_URL")
     if not url:
-        raise RuntimeError("N8N_WORKSPACE_URL is not set in your environment.")
+        return {"status": "error", "error": "Missing N8N_LOG_URL/N8N_WORKSPACE_URL"}
+
     payload = {
         "event": event,
-        "from": "mind-fusion",
+        "session": os.getenv("GMF_SESSION_ID", ""),
+        "from": "gmf",
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     if data is not None:
         payload["data"] = data
-    try:
-        resp = requests.post(url, json=payload, timeout=15)
-        resp.raise_for_status()
-        return resp.json()
-    except Exception:
-        return {"status": "ok", "raw": resp.text}
 
+    resp = None  # ensure defined for error handling
+    try:
+        resp = requests.post(url, json=payload, timeout=12)
+        # If not 2xx, try to surface text but still return a dict
+        if not (200 <= resp.status_code < 300):
+            return {
+                "status": "http_error",
+                "code": resp.status_code,
+                "text": resp.text[:1000],
+            }
+        # Try JSON first; fall back to raw text
+        try:
+            return resp.json()
+        except Exception:
+            return {"status": "ok", "text": resp.text[:1000]}
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "code": getattr(resp, "status_code", None),
+            "text": getattr(resp, "text", None)[:1000] if getattr(resp, "text", None) else None,
+        }
+    
 # ---- Builder helper (sends structured build request to n8n) ----
 def builder_task(spec: str, *, priority: str = "normal", notes: str = "") -> dict:
     if not spec.strip():
