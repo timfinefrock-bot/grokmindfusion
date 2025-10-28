@@ -4,3 +4,6 @@ assemblyai
 requests
 python-dotenv
 PyJWT==2.9.0
+websocket-client
+sounddevice
+websockets
