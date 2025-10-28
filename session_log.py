@@ -1,34 +1,44 @@
-# session_log.py — persistent logging for GrokMind Fusion sessions
-import os, time, json, sqlite3, requests
+# ---------------------------
+# Session logger (robust import + shims)
+# ---------------------------
+import time, uuid
+try:
+    import session_log as slog
+    HAVE_SLOG = True
+except Exception:
+    HAVE_SLOG = False
+    class slog:  # shims
+        @staticmethod
+        def start_session(**kw): return f"sess-{uuid.uuid4().hex[:8]}"
+        @staticmethod
+        def log_event(_sid, _evt, **_data): pass
+        @staticmethod
+        def flush_events(_sid): pass
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "data", "gmf.db")
-N8N_LOG_URL = os.getenv("N8N_LOG_URL", "")  # optional webhook for Dropbox mirror
+def _ensure_session():
+    if "gmf_session" in st.session_state and "gmf_session_id" in st.session_state:
+        return
+    # call start_session with kwargs that any version should ignore/safely accept
+    sess = slog.start_session(app="gmf", page="voice_mode",
+                              ts=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+    # normalize to dict+id
+    if isinstance(sess, dict):
+        sid = sess.get("id") or sess.get("session") or f"sess-{uuid.uuid4().hex[:8]}"
+        st.session_state.gmf_session = {**sess, "id": sid}
+        st.session_state.gmf_session_id = sid
+    else:
+        sid = str(sess)
+        st.session_state.gmf_session = {"id": sid, "ts": int(time.time())}
+        st.session_state.gmf_session_id = sid
 
-def _conn():
-    os.makedirs(os.path.join(os.path.dirname(__file__), "data"), exist_ok=True)
-    con = sqlite3.connect(DB_PATH)
-    con.execute("""CREATE TABLE IF NOT EXISTS events(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        ts TEXT, session TEXT, event TEXT, data TEXT
-    )""")
-    return con
+_ensure_session()
+SESSION     = st.session_state.gmf_session      # dict
+SESSION_ID  = st.session_state.gmf_session_id   # string
 
-def start_session(**meta):
-    return {"id": f"sess-{int(time.time())}", "ts": int(time.time()), "meta": meta}
+def log_event_safe(event: str, **data):
+    try: slog.log_event(SESSION_ID, event, **data)
+    except Exception: pass
 
-def log_event(session: dict, event: str, **data):
-    con = _conn()
-    ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    con.execute("INSERT INTO events(ts,session,event,data) VALUES(?,?,?,?)",
-                (ts, session["id"], event, json.dumps(data)))
-    con.commit()
-    if N8N_LOG_URL:
-        try:
-            payload = {"ts": ts, "session": session["id"], "event": event, "data": data}
-            requests.post(N8N_LOG_URL, json=payload, timeout=5)
-        except Exception:
-            pass  # network errors ignored for safety
-
-def flush_events(session: dict):
-    # no-op placeholder for future batching
-    pass
+def flush_events_safe():
+    try: slog.flush_events(SESSION_ID)
+    except Exception: pass
